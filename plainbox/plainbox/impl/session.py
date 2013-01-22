@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 
 from plainbox.impl.depmgr import DependencyError
@@ -235,8 +236,8 @@ class JobState:
             return self._result
 
         def fset(self, value):
-            if value.job is not self.job:
-                raise ValueError("result job does not match")
+            #if value.job is not self.job:
+            #    raise ValueError("result job does not match")
             self._result = value
 
         return (fget, fset, None, doc)
@@ -304,7 +305,7 @@ class SessionState:
     (either can or cannot run)
     """
 
-    def __init__(self, job_list):
+    def __init__(self, job_list=[]):
         # The original list of job that the system knows about.
         # Not all jobs from this list are going to be executed
         # (or selected for execution) by the user.
@@ -318,7 +319,7 @@ class SessionState:
         # XXX: this can loose data job_list has jobs with the same name. It
         # would be better to use job id as the keys here. A separate map could
         # be used for the name->job lookup.
-        self._job_state_map = {job.name: JobState(job) for job in job_list}
+        self._job_state_map = {}
         # A subset of job_list that was selected by the user for execution.
         # Used to compute run_list. Can be changed at will during lifetime
         # of this object
@@ -358,6 +359,13 @@ class SessionState:
         obj._job_state_map = record['_job_state_map']
         obj._desired_job_list = record['_desired_job_list']
         return obj
+
+    def update_job_state_map(self):
+        """
+        Update the job state map with jobs that the system knows about.
+        """
+        self._job_state_map = {job.name: JobState(job)
+                               for job in self._job_list}
 
     def open(self):
         """
@@ -479,6 +487,18 @@ class SessionState:
         # Update all job readiness state
         self._recompute_job_readiness()
 
+    def previous_session_file(self):
+        """
+        Check the filesystem for previous session data
+        Returns the full pathname to the session file if it exists
+        """
+        session_filename = os.path.join(self._session_data_dir,
+                                        self._session_data_filename)
+        if os.path.exists(session_filename):
+            return session_filename
+        else:
+            return None
+
     def persistent_save(self):
         """
         Save to disk the minimum needed to resume plainbox where it stopped
@@ -499,6 +519,28 @@ class SessionState:
         # => You might lose files because fsync on a file doesn't quarantine
         # that the file is visible in directory.
         # http://linux.die.net/man/2/fsync
+
+    def resume_prompt(self):
+        """
+        Resume prompt
+        """
+        # FIXME: Add support/callbacks for a GUI
+        prompt = "Do you want to resume the previous session [Y/n]? "
+        allowed = ('', 'y', 'Y', 'n', 'N')
+        answer = None
+        while answer not in allowed:
+            answer = input(prompt)
+        return False if answer in ('n', 'N') else True
+
+    def resume(self):
+        """
+        Erase the job_state_map and desired_job_list with the saved ones
+        """
+        with open(self.previous_session_file(), 'r') as f:
+            previous_session = json.load(f, object_hook=dict_to_object)
+            self._job_state_map = previous_session._job_state_map
+            self._desired_job_list = previous_session._desired_job_list
+            # FIXME: Restore io_logs from files
 
     def _process_resource_result(self, result):
         new_resource_list = []
@@ -713,3 +755,19 @@ class SessionStateEncoder(json.JSONEncoder):
             return d
         else:
             return json.JSONEncoder.default(self, obj)
+
+
+def dict_to_object(d):
+    """
+    JSON Decoder helper
+    Convert dictionary to python objects
+    """
+    if '__class__' in d:
+        class_name = d.pop('__class__')
+        module_name = d.pop('__module__')
+        module = sys.modules[module_name]
+        cls = getattr(module, class_name)
+        inst = cls.from_json_record(d)
+    else:
+        inst = d
+    return inst
