@@ -24,11 +24,14 @@ plainbox.impl.test_job
 Test definitions for plainbox.impl.job module
 """
 
+import json
+
 from unittest import TestCase
 
 from plainbox.impl.job import JobDefinition
 from plainbox.impl.rfc822 import RFC822Record
 from plainbox.impl.rfc822 import Origin
+from plainbox.impl.session import dict_to_object
 
 
 class TestJobDefinition(TestCase):
@@ -227,3 +230,36 @@ class TestJobDefinition(TestCase):
             'plugin': 'plugin',
             'requires': "foo.bar == bar"})
         self.assertRaises(Exception, job.get_resource_dependencies)
+
+    def test_encode(self):
+        job = JobDefinition({
+            'name': 'name',
+            'plugin': 'plugin',
+            'requires': "foo.bar == bar"})
+        job_enc = job.__getstate__()
+        self.assertEqual(job_enc['data']['plugin'], job.plugin)
+        self.assertEqual(job_enc['data']['name'], job.name)
+        with self.assertRaises(KeyError):
+            job_enc['requires']
+        with self.assertRaises(KeyError):
+            job_enc['depends']
+        with self.assertRaises(KeyError):
+            job_enc['description']
+        with self.assertRaises(KeyError):
+            job_enc['command']
+        with self.assertRaises(KeyError):
+            job_enc['origin']
+
+    def test_decode(self):
+        raw_json = """{
+                "__class__": "JobDefinition",
+                "__module__": "plainbox.impl.job",
+                "data": {
+                    "name": "camera/still",
+                    "plugin": "user-verify"
+                }
+            }"""
+        job_dec = json.loads(raw_json, object_hook=dict_to_object)
+        self.assertIsInstance(job_dec, JobDefinition)
+        self.assertEqual(job_dec.name, "camera/still")
+        self.assertEqual(job_dec.plugin, "user-verify")

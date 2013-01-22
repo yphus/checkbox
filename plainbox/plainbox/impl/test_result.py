@@ -28,6 +28,9 @@ from unittest import TestCase
 
 from plainbox.impl.result import JobResult
 from plainbox.impl.testing_utils import make_job
+from plainbox.impl.session import dict_to_object
+
+import json
 
 
 class JobResultTests(TestCase):
@@ -64,3 +67,45 @@ class JobResultTests(TestCase):
         self.assertEqual(result.comments, "it said blah")
         self.assertEqual(result.io_log, ((0, 'stdout', 'blah\n'),))
         self.assertEqual(result.return_code, 0)
+
+    def test_encode(self):
+        result = JobResult({
+            'job': self.job,
+            'outcome': JobResult.OUTCOME_PASS,
+            'comments': "it said blah",
+            'io_log': ((0, 'stdout', 'blah\n'),),
+            'return_code': 0
+        })
+        result_enc = result.__getstate__()
+        self.assertEqual(result_enc['data']['job'], result.job)
+        self.assertEqual(result_enc['data']['outcome'], result.outcome)
+        self.assertEqual(result_enc['data']['comments'], result.comments)
+        self.assertEqual(result_enc['data']['return_code'], result.return_code)
+        with self.assertRaises(KeyError):
+            result_enc['io_log']
+
+    def test_decode(self):
+        raw_json = """{
+                "__class__": "JobResult",
+                "__module__": "plainbox.impl.result",
+                "data": {
+                    "comments": null,
+                    "job": {
+                        "__class__": "JobDefinition",
+                        "__module__": "plainbox.impl.job",
+                        "data": {
+                            "name": "__audio__",
+                            "plugin": "local"
+                        }
+                    },
+                    "outcome": "pass",
+                    "return_code": 0
+                }
+            }"""
+        result_dec = json.loads(raw_json, object_hook=dict_to_object)
+        self.assertIsInstance(result_dec, JobResult)
+        self.assertEqual(result_dec.job.name, "__audio__")
+        self.assertEqual(result_dec.outcome, JobResult.OUTCOME_PASS)
+        self.assertIsNone(result_dec.comments)
+        self.assertEqual(result_dec.io_log, ())
+        self.assertEqual(result_dec.return_code, 0)
