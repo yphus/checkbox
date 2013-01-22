@@ -163,3 +163,10 @@ class JobDefinition(IJobDefinition):
                 raise ValueError(
                     "Required record key {!r} was not found".format(key))
         return cls(record.data, record.origin)
+
+    @classmethod
+    def from_json_record(cls, record):
+        """
+        Create a JobDefinition instance from JSON record
+        """
+        return cls(record['data'])
