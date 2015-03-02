@@ -217,18 +217,16 @@ class CliInvocation2(RunInvocation):
             A list of selected whitelists
         """
         testplans = []
-        whitelist_name_list = []
         whitelist_selection = []
         for provider in self.provider_list:
             testplans.extend(
                 [unit for unit in provider.unit_list if
                  unit.Meta.name == 'test plan' and
                  re.search(self.launcher.whitelist_filter, unit.partial_id)])
-        whitelist_name_list.extend([
-            whitelist.name for whitelist in testplans])
+        whitelist_name_list = [whitelist.name for whitelist in testplans]
         whitelist_selection = [
-            whitelist_name_list.index(w) for w in whitelist_name_list if
-            re.search(self.launcher.whitelist_selection, w)]
+            testplans.index(t) for t in testplans if
+            re.search(self.launcher.whitelist_selection, t.partial_id)]
         selected_list = self.display.run(
             ShowMenu(_("Suite selection"), whitelist_name_list,
                      whitelist_selection))
