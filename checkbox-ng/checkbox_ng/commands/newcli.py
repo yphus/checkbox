@@ -148,6 +148,9 @@ class CliInvocation2(RunInvocation):
             # Maybe allow the user to do a manual whitelist selection
             if not self._whitelists:
                 self.maybe_interactively_select_whitelists()
+            testplans = [t for t in self._whitelists
+                         if not isinstance(t, WhiteList)]
+            self.manager.test_plans = tuple(testplans)
             # Store the application-identifying meta-data and checkpoint the
             # session.
             self.store_application_metadata()
