@@ -237,12 +237,13 @@ class CliInvocation2(RunInvocation):
         return [testplans[selected_index] for selected_index in selected_list]
 
     def get_default_whitelists(self):
-        whitelist_name_list = []
+        testplans = []
         for provider in self.provider_list:
-            whitelist_name_list.extend([
-                w for w in provider.whitelist_list if re.search(
-                    self.launcher.whitelist_selection, w.name)])
-        return whitelist_name_list
+            testplans.extend(
+                [unit for unit in provider.unit_list if
+                 unit.Meta.name == 'test plan' and re.search(
+                    self.launcher.whitelist_selection, unit.partial_id)])
+        return testplans
 
     def create_exporter(self):
         """
