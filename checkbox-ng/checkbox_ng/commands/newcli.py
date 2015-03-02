@@ -46,6 +46,7 @@ from plainbox.impl.secure.config import Unset, ValidationError
 from plainbox.impl.secure.origin import Origin
 from plainbox.impl.secure.qualifiers import FieldQualifier
 from plainbox.impl.secure.qualifiers import OperatorMatcher
+from plainbox.impl.secure.qualifiers import select_jobs
 from plainbox.impl.secure.qualifiers import WhiteList
 from plainbox.impl.session import SessionMetaData
 from plainbox.impl.transport import get_all_transports
@@ -101,8 +102,11 @@ class CliInvocation2(RunInvocation):
 
     def select_whitelist(self):
         if 'whitelist' in self.ns and self.ns.whitelist:
-            for whitelist in self.ns.whitelist:
-                self._whitelists.append(WhiteList.from_file(whitelist.name))
+            for whitelist_file in self.ns.whitelist:
+                qualifier = self.get_whitelist_from_file(
+                    whitelist_file.name, whitelist_file)
+                if qualifier is not None:
+                    self._whitelists.append(qualifier)
         elif self.config.whitelist is not Unset:
             self._whitelists.append(WhiteList.from_file(self.config.whitelist))
         elif ('include_pattern_list' in self.ns and
@@ -142,7 +146,8 @@ class CliInvocation2(RunInvocation):
             # Show the welcome message
             self.show_welcome_screen()
             # Maybe allow the user to do a manual whitelist selection
-            self.maybe_interactively_select_whitelists()
+            if not self._whitelists:
+                self.maybe_interactively_select_whitelists()
             # Store the application-identifying meta-data and checkpoint the
             # session.
             self.store_application_metadata()
@@ -196,7 +201,7 @@ class CliInvocation2(RunInvocation):
     def maybe_interactively_select_whitelists(self):
         if self.launcher.skip_whitelist_selection:
             self._whitelists.extend(self.get_default_whitelists())
-        elif self.is_interactive and not self._whitelists:
+        elif self.is_interactive:
             self._whitelists.extend(self.get_interactively_picked_whitelists())
         elif self.launcher.whitelist_selection:
             self._whitelists.extend(self.get_default_whitelists())
@@ -211,11 +216,16 @@ class CliInvocation2(RunInvocation):
         :returns:
             A list of selected whitelists
         """
-        whitelist_name_list = whitelist_selection = []
+        testplans = []
+        whitelist_name_list = []
+        whitelist_selection = []
         for provider in self.provider_list:
-            whitelist_name_list.extend([
-                whitelist.name for whitelist in provider.whitelist_list
-                if re.search(self.launcher.whitelist_filter, whitelist.name)])
+            testplans.extend(
+                [unit for unit in provider.unit_list if
+                 unit.Meta.name == 'test plan' and
+                 re.search(self.launcher.whitelist_filter, unit.partial_id)])
+        whitelist_name_list.extend([
+            whitelist.name for whitelist in testplans])
         whitelist_selection = [
             whitelist_name_list.index(w) for w in whitelist_name_list if
             re.search(self.launcher.whitelist_selection, w)]
@@ -224,9 +234,7 @@ class CliInvocation2(RunInvocation):
                      whitelist_selection))
         if not selected_list:
             raise SystemExit(_("No whitelists selected, aborting"))
-        return [get_whitelist_by_name(
-            self.provider_list, whitelist_name_list[selected_index])
-            for selected_index in selected_list]
+        return [testplans[selected_index] for selected_index in selected_list]
 
     def get_default_whitelists(self):
         whitelist_name_list = []
@@ -268,19 +276,29 @@ class CliInvocation2(RunInvocation):
         # within, we only need to and an exclusive qualifier that deselects
         # non-local jobs and we're done.
         qualifier_list = []
-        qualifier_list.extend(self._whitelists)
+        for unit in self._whitelists:
+            if isinstance(unit, WhiteList):
+                qualifier_list.append(unit)
+            else:
+                qualifier_list.append(unit.get_qualifier())
         origin = Origin.get_caller_origin()
         qualifier_list.append(FieldQualifier(
             'plugin', OperatorMatcher(operator.ne, 'local'), origin,
             inclusive=False))
-        local_job_list = self._get_matching_job_list(
-            self.ns, self.manager.state.job_list)
+        local_job_list = select_jobs(
+            self.manager.state.job_list, qualifier_list)
         self._update_desired_job_list(local_job_list)
 
     def interactively_pick_jobs_to_run(self):
         print(self.C.header(_("Selecting Jobs For Execution")))
-        self._update_desired_job_list(self._get_matching_job_list(
-            self.ns, self.manager.state.job_list))
+        qualifier_list = []
+        for unit in self._whitelists:
+            if isinstance(unit, WhiteList):
+                qualifier_list.append(unit)
+            else:
+                qualifier_list.append(unit.get_qualifier())
+        self._update_desired_job_list(select_jobs(
+            self.manager.state.job_list, qualifier_list))
         if self.launcher.skip_test_selection or not self.is_interactive:
             return
         tree = SelectableJobTreeNode.create_tree(
